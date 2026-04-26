@@ -1,0 +1,17 @@
+# Data - Tuyệt đối không push file csv lên đây
+data/
+!data/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.env
+venv/
+env/
+.ipynb_checkpoints/
+
+# OS files
+.DS_Store
+Thumbs.db
