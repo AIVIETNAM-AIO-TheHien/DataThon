@@ -6,3 +6,6 @@ shap
 matplotlib
 seaborn
 jupyter
+lightgbm
+prophet
+matplotlib
