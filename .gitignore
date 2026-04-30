@@ -1,4 +1,3 @@
-# Data - Tuyệt đối không push file csv lên đây
 data/
 !data/.gitkeep
 
