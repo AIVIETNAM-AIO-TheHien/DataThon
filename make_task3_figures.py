@@ -640,45 +640,101 @@ def run_model_aligned_validation(
     quarters: np.ndarray,
     best_params: Optional[dict],
 ) -> Tuple[Dict[str, pd.DataFrame], pd.DataFrame]:
-    # Fold A is the same validation fold used by tune_hyperparams.py.
-    train_mask, val_mask = time_series_split(dates, "A")
-    if train_mask.sum() == 0 or val_mask.sum() == 0:
-        raise RuntimeError("Fold A cannot be formed from the current sales.csv date range.")
+    """
+    Chạy validation theo đúng các fold trong src.cv_validation.time_series_split().
+
+    - validation_metrics.csv sẽ có đủ Fold A, B, C cho cả Revenue và COGS.
+    - Bổ sung metric R^2.
+    - validation_predictions_*.csv và các figure validation vẫn dùng Fold A
+      để không làm thay đổi số lượng figure đang cố định là 16.
+    """
 
     results = {}
     metric_rows = []
-    val_dates = dates[val_mask].reset_index(drop=True)
 
-    for target in TARGETS:
-        preds = predict_pipeline_like_for_target(
-            X_train=X[train_mask],
-            y_train_log=y[target][train_mask],
-            dates_train=dates[train_mask].reset_index(drop=True),
-            years_train=years[train_mask],
-            quarters_train=quarters[train_mask],
-            X_pred=X[val_mask],
-            quarters_pred=quarters[val_mask],
-            target=target,
-            best_params=best_params,
-        )
-        actual = feat.loc[val_mask, target].reset_index(drop=True)
-        pred = pd.Series(preds["final"]).reset_index(drop=True)
-        residual = pred - actual
-        mae = float(np.mean(np.abs(residual)))
-        rmse = float(np.sqrt(np.mean(residual ** 2)))
-        smape = float(np.mean(2 * np.abs(pred - actual) / np.maximum(np.abs(actual) + np.abs(pred), 1e-9)))
-        metric_rows.append({"target": target, "fold": "A", "MAE": mae, "RMSE": rmse, "sMAPE": smape})
-        results[target] = pd.DataFrame({
-            "Date": val_dates,
-            "actual": actual,
-            "pred_final_ensemble": pred,
-            "residual": residual,
-            "lgb_base": preds["lgb_base"],
-            "q_specialist": preds["q_specialist"],
-            "lgb_blend": preds["lgb_blend"],
-            "ridge": preds["ridge"],
-            "raw_before_calibration": preds["raw_before_calibration"],
-        })
+    figure_fold = "A"  # giữ figure validation theo Fold A như caption/report hiện tại
+
+    for fold in FOLD_NAMES:
+        train_mask, val_mask = time_series_split(dates, fold)
+
+        train_mask = np.asarray(train_mask, dtype=bool)
+        val_mask = np.asarray(val_mask, dtype=bool)
+
+        if train_mask.sum() == 0 or val_mask.sum() == 0:
+            print(f"[WARN] Fold {fold} has empty train/validation set. Skipping.")
+            continue
+
+        val_dates = dates[val_mask].reset_index(drop=True)
+
+        for target in TARGETS:
+            preds = predict_pipeline_like_for_target(
+                X_train=X[train_mask],
+                y_train_log=y[target][train_mask],
+                dates_train=dates[train_mask].reset_index(drop=True),
+                years_train=years[train_mask],
+                quarters_train=quarters[train_mask],
+                X_pred=X[val_mask],
+                quarters_pred=quarters[val_mask],
+                target=target,
+                best_params=best_params,
+            )
+
+            actual = feat.loc[val_mask, target].reset_index(drop=True)
+            pred = pd.Series(preds["final"]).reset_index(drop=True)
+            residual = pred - actual
+
+            mae = float(np.mean(np.abs(residual)))
+            rmse = float(np.sqrt(np.mean(residual ** 2)))
+            smape = float(
+                np.mean(
+                    2 * np.abs(pred - actual)
+                    / np.maximum(np.abs(actual) + np.abs(pred), 1e-9)
+                )
+            )
+
+            # R^2 = 1 - SS_res / SS_tot
+            ss_res = float(np.sum((actual - pred) ** 2))
+            ss_tot = float(np.sum((actual - actual.mean()) ** 2))
+            r2 = float(1 - ss_res / ss_tot) if ss_tot > 0 else np.nan
+
+            metric_rows.append({
+                "fold": fold,
+                "target": target,
+                "train_start": pd.Timestamp(dates[train_mask].min()).date().isoformat(),
+                "train_end": pd.Timestamp(dates[train_mask].max()).date().isoformat(),
+                "val_start": pd.Timestamp(dates[val_mask].min()).date().isoformat(),
+                "val_end": pd.Timestamp(dates[val_mask].max()).date().isoformat(),
+                "n_train": int(train_mask.sum()),
+                "n_val": int(val_mask.sum()),
+                "MAE": mae,
+                "RMSE": rmse,
+                "sMAPE": smape,
+                "R^2": r2,
+            })
+
+            # Chỉ lưu prediction chi tiết cho Fold A để các hàm vẽ figure phía sau không bị lỗi
+            if fold == figure_fold:
+                results[target] = pd.DataFrame({
+                    "Date": val_dates,
+                    "actual": actual,
+                    "pred_final_ensemble": pred,
+                    "residual": residual,
+                    "lgb_base": preds["lgb_base"],
+                    "q_specialist": preds["q_specialist"],
+                    "lgb_blend": preds["lgb_blend"],
+                    "ridge": preds["ridge"],
+                    "raw_before_calibration": preds["raw_before_calibration"],
+                })
+
+    metrics = pd.DataFrame(metric_rows)
+
+    if not metrics.empty:
+        metrics = metrics.sort_values(["fold", "target"]).reset_index(drop=True)
+
+    if not results:
+        raise RuntimeError("No validation prediction results were generated for figure fold A.")
+
+    return results, metrics
 
     metrics = pd.DataFrame(metric_rows)
     return results, metrics
@@ -769,46 +825,95 @@ def fig_15_submission_monthly_forecast(sub: Optional[pd.DataFrame], out_dir: Pat
 
 
 def fig_16_model_pipeline_overview(out_dir: Path, submission_status: str, has_best_params: bool) -> None:
-    fig, ax = plt.subplots(figsize=(13, 7))
+    """
+    Draw a clean model-aligned pipeline figure.
+
+    Giữ nguyên tham số submission_status và has_best_params để không cần sửa main(),
+    nhưng không hiển thị chúng trên figure vì dễ làm hình bị rối.
+    """
+    fig, ax = plt.subplots(figsize=(13, 6.5))
     ax.axis("off")
 
     boxes = [
-        (0.03, 0.74, 0.18, 0.15, "Input\nsales.csv\nDate, Revenue, COGS"),
-        (0.27, 0.74, 0.22, 0.15, "Feature engineering\nbuild_features(Date)\ncalendar, Fourier, Tet, holidays, promo"),
-        (0.56, 0.74, 0.17, 0.15, "Targets\nlog1p(Revenue)\nlog1p(COGS)"),
-        (0.03, 0.49, 0.18, 0.15, "Tuning\nrun_tuning.py\nOptuna on Revenue fold A"),
-        (0.27, 0.49, 0.22, 0.15, "Weights\n2014-2018: 1.0\nother years: 0.01"),
-        (0.56, 0.49, 0.17, 0.15, "LightGBM\nbase model\n+ Q1-Q4 specialists"),
-        (0.79, 0.49, 0.17, 0.15, "LGB blend\n0.60 Q-specialist\n0.40 base"),
-        (0.27, 0.24, 0.22, 0.15, "Ridge layer\nstandardized X\ncalendar fallback"),
-        (0.56, 0.24, 0.17, 0.15, "Raw ensemble\n0.20 Ridge\n0.80 LGB blend"),
-        (0.79, 0.24, 0.17, 0.15, "Calibration\nRevenue × 1.26\nCOGS × 1.32"),
-        (0.56, 0.04, 0.17, 0.13, "Test dates\n2023-01-01\nto 2024-07-01"),
-        (0.79, 0.04, 0.17, 0.13, "Output\nsubmission.csv\n" + submission_status),
+        # row 1
+        (0.04, 0.72, 0.18, 0.14, "Input\nsales.csv\nDate, Revenue, COGS"),
+        (0.29, 0.72, 0.22, 0.14, "Feature engineering\nbuild_features(Date)\ncalendar, Fourier,\nTet, holidays, promo"),
+        (0.59, 0.72, 0.18, 0.14, "Targets\nlog1p(Revenue)\nlog1p(COGS)"),
+
+        # row 2
+        (0.04, 0.45, 0.18, 0.14, "Tuning\nrun_tuning.py\nOptuna on Fold A"),
+        (0.29, 0.45, 0.22, 0.14, "Sample weights\n2014–2018: 1.0\nother years: 0.01"),
+        (0.59, 0.45, 0.18, 0.14, "LightGBM\nbase model\n+ Q1–Q4 specialists"),
+        (0.82, 0.45, 0.14, 0.14, "LGB blend\n0.60 specialist\n0.40 base"),
+
+        # row 3
+        (0.29, 0.18, 0.22, 0.14, "Ridge layer\nstandardized X\nlinear fallback"),
+        (0.59, 0.18, 0.18, 0.14, "Raw ensemble\n0.20 Ridge\n0.80 LGB blend"),
+        (0.82, 0.18, 0.14, 0.14, "Calibration\nRevenue × 1.26\nCOGS × 1.32"),
+
+        # output
+        (0.82, 0.01, 0.14, 0.11, "Output\nsubmission.csv"),
     ]
+
     for x, y, w, h, text in boxes:
-        rect = plt.Rectangle((x, y), w, h, fill=False, linewidth=1.5)
+        rect = plt.Rectangle(
+            (x, y),
+            w,
+            h,
+            fill=False,
+            linewidth=1.6,
+            edgecolor="black"
+        )
         ax.add_patch(rect)
-        ax.text(x + w / 2, y + h / 2, text, ha="center", va="center", fontsize=9.6)
+        ax.text(
+            x + w / 2,
+            y + h / 2,
+            text,
+            ha="center",
+            va="center",
+            fontsize=9.5
+        )
 
     arrows = [
-        ((0.21, 0.815), (0.27, 0.815)),
-        ((0.49, 0.815), (0.56, 0.815)),
-        ((0.12, 0.74), (0.12, 0.64)),
-        ((0.21, 0.565), (0.27, 0.565)),
-        ((0.49, 0.565), (0.56, 0.565)),
-        ((0.73, 0.565), (0.79, 0.565)),
-        ((0.49, 0.315), (0.56, 0.315)),
-        ((0.88, 0.49), (0.66, 0.39)),
-        ((0.73, 0.315), (0.79, 0.315)),
-        ((0.88, 0.24), (0.88, 0.17)),
-    ]
-    for start, end in arrows:
-        ax.annotate("", xy=end, xytext=start, arrowprops=dict(arrowstyle="->", lw=1.5))
+        # top row
+        ((0.22, 0.79), (0.29, 0.79)),
+        ((0.51, 0.79), (0.59, 0.79)),
 
-    best_params_note = "best_lgb_params.json loaded" if has_best_params else "default LightGBM params used if no best_lgb_params.json"
-    ax.text(0.03, 0.02, best_params_note, fontsize=9, ha="left", va="bottom")
-    ax.set_title("Task 3 Model-Aligned Forecasting Pipeline", fontsize=15, pad=14)
+        # input to tuning
+        ((0.13, 0.72), (0.13, 0.59)),
+
+        # middle row
+        ((0.22, 0.52), (0.29, 0.52)),
+        ((0.51, 0.52), (0.59, 0.52)),
+        ((0.77, 0.52), (0.82, 0.52)),
+
+        # ridge to raw ensemble
+        ((0.51, 0.25), (0.59, 0.25)),
+
+        # LGB blend to raw ensemble
+        ((0.89, 0.45), (0.68, 0.32)),
+
+        # raw ensemble to calibration
+        ((0.77, 0.25), (0.82, 0.25)),
+
+        # calibration to output
+        ((0.89, 0.18), (0.89, 0.12)),
+    ]
+
+    for start, end in arrows:
+        ax.annotate(
+            "",
+            xy=end,
+            xytext=start,
+            arrowprops=dict(arrowstyle="->", lw=1.6)
+        )
+
+    ax.set_title(
+        "Task 3 Model-Aligned Forecasting Pipeline",
+        fontsize=15,
+        pad=16
+    )
+
     save_fig(out_dir / EXPECTED_FIGURES[15])
 
 
