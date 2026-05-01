@@ -76,13 +76,3 @@ python make_task3_figures.py --raw-dir data/raw --submission submission.csv --ou
 15. `fig_15_submission_monthly_forecast.png`
 16. `fig_16_model_pipeline_overview.png`
 
-## Nên chèn vào report 1–1.5 trang
-
-Chỉ cần chọn khoảng 4–6 hình mạnh nhất:
-
-- `fig_16_model_pipeline_overview.png`
-- `fig_07_cv_folds_from_code.png`
-- `fig_09_sample_weights.png`
-- `fig_10_feature_importance_revenue.png` hoặc `fig_11_feature_importance_cogs.png`
-- `fig_12_validation_actual_pred_revenue.png`
-- `fig_15_submission_monthly_forecast.png`
