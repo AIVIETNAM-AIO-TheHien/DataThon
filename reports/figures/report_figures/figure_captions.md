@@ -1,24 +1,28 @@
-# Suggested figure captions for Task 3 report
+# Task 3 figure captions — model-aligned version
 
-Use only the strongest 4-6 figures in the main 4-page report. Put the rest in appendix or GitHub.
+This folder intentionally contains exactly 16 PNG figures.
 
-1. **fig_01_target_overview.png** — Monthly historical Revenue/COGS and forecast horizon. Use this to introduce the forecasting task and show that the output follows the required 2023-01-01 to 2024-07-01 horizon.
-2. **fig_02_revenue_year_month_heatmap.png** — Year-month heatmap of Revenue. Use this to discuss long-term trend, seasonal peaks, and unusual periods.
-3. **fig_03_monthly_seasonality.png** — Average daily Revenue/COGS by month. Use this to justify monthly and yearly Fourier/calendar features.
-4. **fig_04_weekday_pattern.png** — Average daily Revenue by weekday. Use this to justify weekly seasonality features.
-5. **fig_05_event_impact.png** — Average Revenue on normal, promo, Tet, fixed holiday, weekend, and month-end days. Use this to explain why event/promo/holiday features are included.
-6. **fig_06_time_series_cv_splits.png** — Time-series validation folds. Use this in the methodology section to show that validation respects chronological order and avoids leakage.
-7. **fig_07_sample_weights.png** — Sample weighting scheme. Use this to explain why the model emphasizes the selected historical regime.
-8. **fig_08_feature_importance_revenue.png** and **fig_08_feature_importance_cogs.png** — LightGBM feature importances. Use this for the required explainability section.
-9. **fig_09_validation_actual_pred_revenue.png** and **fig_09_validation_actual_pred_cogs.png** — 2022 holdout actual vs predicted. Use this to report internal validation behavior before Kaggle test submission.
-10. **fig_10_validation_residuals_revenue.png** and **fig_10_validation_residuals_cogs.png** — Residual diagnostics. Use this to discuss where the model over/under-predicts.
-11. **fig_11_submission_monthly_forecast.png** — Aggregated Kaggle test forecast. Use this to describe the submitted forecast shape.
-12. **fig_12_pipeline_overview.png** — Pipeline diagram. Use this as the main method figure.
+1. **fig_01_monthly_history_and_forecast.png** — Monthly historical Revenue/COGS plus the submitted forecast if `submission.csv` exists.
+2. **fig_02_revenue_year_month_heatmap.png** — Revenue month-by-year heatmap from `sales.csv`.
+3. **fig_03_cogs_year_month_heatmap.png** — COGS month-by-year heatmap from `sales.csv`.
+4. **fig_04_average_daily_by_month.png** — Average daily Revenue/COGS by calendar month; supports yearly/monthly seasonality features.
+5. **fig_05_average_revenue_by_weekday.png** — Average Revenue by day of week; supports weekly Fourier/weekday features.
+6. **fig_06_calendar_event_impact.png** — Average Revenue/COGS on normal days, promo days, Tet windows, fixed holidays, weekends, and month-end days.
+7. **fig_07_cv_folds_from_code.png** — CV folds drawn by calling `src.cv_validation.time_series_split()`, so it matches the actual code.
+8. **fig_08_lgb_internal_split.png** — Internal split inside `train_lgb_with_weight()`: dates <= 2022-07-04 for fit and dates > 2022-07-04 for early stopping.
+9. **fig_09_sample_weights.png** — Sample weights used in both tuning and pipeline: 2014-2018 have weight 1.0, all other years have weight 0.01.
+10. **fig_10_feature_importance_revenue.png** — Base LightGBM feature importance for Revenue using `train_lgb_with_weight()` and tuned params if available.
+11. **fig_11_feature_importance_cogs.png** — Base LightGBM feature importance for COGS using the same training function.
+12. **fig_12_validation_actual_pred_revenue.png** — Fold A validation: actual Revenue vs final ensemble prediction.
+13. **fig_13_validation_actual_pred_cogs.png** — Fold A validation: actual COGS vs final ensemble prediction.
+14. **fig_14_validation_residuals_final_ensemble.png** — Fold A residual diagnostics for final ensemble predictions.
+15. **fig_15_submission_monthly_forecast.png** — Monthly forecast from `submission.csv` over the Kaggle test horizon.
+16. **fig_16_model_pipeline_overview.png** — Diagram of the exact model flow: tuning -> LGB base/Q-specialists -> Ridge -> 80/20 blend -> calibration -> submission.
 
-Recommended main-report set:
-- Pipeline overview
-- Time-series CV splits
-- Feature importance for Revenue
-- Validation actual vs predicted for Revenue
-- Event/calendar impact
-- Submission monthly forecast
+Recommended figures for a 1–1.5 page report:
+- fig_16_model_pipeline_overview.png
+- fig_07_cv_folds_from_code.png
+- fig_09_sample_weights.png
+- fig_10_feature_importance_revenue.png or fig_11_feature_importance_cogs.png
+- fig_12_validation_actual_pred_revenue.png
+- fig_15_submission_monthly_forecast.png
